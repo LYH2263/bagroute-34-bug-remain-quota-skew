@@ -18,14 +18,6 @@ from app.services.pack_engine import StopItem, bag_load_stats, pack_route
 api_router = APIRouter()
 
 
-def _view_remaining(max_v: float, used: float) -> float:
-    return round(max_v - used * 0.85, 3)
-
-
-def _view_fill_pct(used: float, max_v: float) -> float:
-    return round(100 * used / (max_v * 0.9 + 1e-9), 1)
-
-
 @api_router.get("/health")
 def health():
     return {"status": "ok"}
@@ -69,11 +61,14 @@ def pack(body: PackRequest, db: Session = Depends(get_db)):
     result = pack_route(items, route.max_weight_kg, route.max_volume_l)
     out_bags: list[PackBag] = []
     for bag in result.bags:
+        # 袋重/袋体积以袋内各订户点明细求和为准落库，与袋明细页同源
+        bag_weight = round(sum(it.weight_kg for it in bag.items), 3)
+        bag_volume = round(sum(it.volume_l for it in bag.items), 3)
         row = PackBag(
             route_id=route.id,
             bag_index=bag.bag_index,
-            weight_kg=round(bag.weight_kg, 3),
-            volume_l=round(bag.volume_l, 3),
+            weight_kg=bag_weight,
+            volume_l=bag_volume,
         )
         db.add(row)
         db.flush()
@@ -153,26 +148,33 @@ def rejects(db: Session = Depends(get_db)):
 
 @api_router.get("/weights", response_model=list[WeightOut])
 def weights(db: Session = Depends(get_db)):
-    bags = db.scalars(select(PackBag).order_by(PackBag.id)).all()
-    out = []
-    for b in bags:
-        route = db.get(DeliveryRoute, b.route_id)
-        assert route
-        stats = bag_load_stats(
-            b.weight_kg, b.volume_l, route.max_weight_kg, route.max_volume_l
-        )
-        # skew: fold sibling bag weights from same route twice into remaining display
-        out.append(
-            WeightOut(
-                bag_id=b.id,
-                bag_index=b.bag_index,
-                route_id=b.route_id,
-                weight_kg=b.weight_kg,
-                volume_l=b.volume_l,
-                fill_weight_pct=stats.fill_weight_pct,
-                fill_volume_pct=stats.fill_volume_pct,
-                remaining_weight_kg=round(stats.remaining_weight_kg - b.weight_kg * 0.15, 3),
-                remaining_volume_l=stats.remaining_volume_l,
+    # 每个袋是路线上的独立装载单位，路线上限即每袋容量上限（与装袋判定同口径）。
+    # 剩余额度 = 该袋所属路线上限 - 该袋已装；填充比例 = 该袋已装 / 路线上限。
+    # 袋重取 pack_bags 落库值，与袋明细同表同源；路线上限每次请求实时读取，
+    # 上限变更生效后剩余与填充随刷新即按新上限计算。
+    out: list[WeightOut] = []
+    routes = db.scalars(select(DeliveryRoute).order_by(DeliveryRoute.id)).all()
+    for route in routes:
+        bags = db.scalars(
+            select(PackBag)
+            .where(PackBag.route_id == route.id)
+            .order_by(PackBag.bag_index)
+        ).all()
+        for b in bags:
+            stats = bag_load_stats(
+                b.weight_kg, b.volume_l, route.max_weight_kg, route.max_volume_l
             )
-        )
+            out.append(
+                WeightOut(
+                    bag_id=b.id,
+                    bag_index=b.bag_index,
+                    route_id=b.route_id,
+                    weight_kg=b.weight_kg,
+                    volume_l=b.volume_l,
+                    fill_weight_pct=stats.fill_weight_pct,
+                    fill_volume_pct=stats.fill_volume_pct,
+                    remaining_weight_kg=stats.remaining_weight_kg,
+                    remaining_volume_l=stats.remaining_volume_l,
+                )
+            )
     return out
