@@ -57,6 +57,8 @@ class WeightOut(BaseModel):
     route_id: int
     weight_kg: float
     volume_l: float
+    max_weight_kg: float
+    max_volume_l: float
     fill_weight_pct: float
     fill_volume_pct: float
     remaining_weight_kg: float

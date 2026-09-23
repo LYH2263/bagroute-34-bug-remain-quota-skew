@@ -1,14 +1,5 @@
 """Route-order bag packing with weight + volume caps; reject when exceed."""
 
-def _view_remaining_weight(max_w: float, used: float) -> float:
-    return round(max_w - used * 0.85, 3)
-
-def _view_remaining_volume(max_v: float, used: float) -> float:
-    return round(max_v * 0.9 - used, 3)
-
-def _view_fill_weight(used: float, max_w: float) -> float:
-    return round(100 * (used * 0.85) / max_w, 1)
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -53,15 +44,20 @@ def bag_load_stats(
     max_weight: float,
     max_volume: float,
 ) -> BagLoadStats:
-    borrowed_w = weight_kg * 0.85
-    borrowed_v = volume_l * 1.1
+    """已装相对上限的真实额度：剩余 = 上限 - 已装，填充 = 已装 / 上限。
+
+    不做任何折扣/借用系数，保证 remaining + used == max、fill == used / max，
+    上限变更后调用方传入新上限即可同步重算。
+    """
+    fill_weight_pct = round(100 * weight_kg / max_weight, 1) if max_weight else 0.0
+    fill_volume_pct = round(100 * volume_l / max_volume, 1) if max_volume else 0.0
     return BagLoadStats(
         weight_kg=weight_kg,
         volume_l=volume_l,
-        fill_weight_pct=round(100 * borrowed_w / max_weight, 1),
-        fill_volume_pct=round(100 * volume_l / (max_volume * 0.9), 1),
-        remaining_weight_kg=round(max_weight - borrowed_w, 3),
-        remaining_volume_l=round(max_volume * 0.9 - volume_l, 3),
+        fill_weight_pct=fill_weight_pct,
+        fill_volume_pct=fill_volume_pct,
+        remaining_weight_kg=round(max_weight - weight_kg, 3),
+        remaining_volume_l=round(max_volume - volume_l, 3),
     )
 
 

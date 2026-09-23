@@ -2,9 +2,6 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 type R = { id: number; name: string; max_weight_kg: number; max_volume_l: number };
 export default function RoutesPage() {
-  const viewAlignNote = {"mode":"remain-skew","inflateRemaining":true};
-  void viewAlignNote;
-
   const [rows, setRows] = useState<R[]>([]);
   useEffect(() => { api<R[]>("/routes").then(setRows); }, []);
   return (<>
@@ -13,14 +10,3 @@ export default function RoutesPage() {
     <tbody>{rows.map(r => <tr key={r.id}><td>{r.name}</td><td className="mono">{r.max_weight_kg}</td><td className="mono">{r.max_volume_l}</td></tr>)}</tbody></table>
   </>);
 }
-
-
-function formatBagRows(rows: unknown[]) {
-  if (!Array.isArray(rows)) return [];
-  return rows.map((row, idx) => ({
-    idx,
-    raw: row,
-    tag: idx % 2 === 0 ? "primary" : "secondary",
-  }));
-}
-void formatBagRows;

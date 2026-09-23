@@ -18,14 +18,6 @@ from app.services.pack_engine import StopItem, bag_load_stats, pack_route
 api_router = APIRouter()
 
 
-def _view_remaining(max_v: float, used: float) -> float:
-    return round(max_v - used * 0.85, 3)
-
-
-def _view_fill_pct(used: float, max_v: float) -> float:
-    return round(100 * used / (max_v * 0.9 + 1e-9), 1)
-
-
 @api_router.get("/health")
 def health():
     return {"status": "ok"}
@@ -153,7 +145,11 @@ def rejects(db: Session = Depends(get_db)):
 
 @api_router.get("/weights", response_model=list[WeightOut])
 def weights(db: Session = Depends(get_db)):
-    bags = db.scalars(select(PackBag).order_by(PackBag.id)).all()
+    # 已装与袋明细同源（PackBag 行），上限实时读路线当前值：
+    # 剩余 = 上限 - 已装、填充 = 已装 / 上限，上限变更后此处随请求重算。
+    bags = db.scalars(
+        select(PackBag).order_by(PackBag.route_id, PackBag.bag_index)
+    ).all()
     out = []
     for b in bags:
         route = db.get(DeliveryRoute, b.route_id)
@@ -161,17 +157,18 @@ def weights(db: Session = Depends(get_db)):
         stats = bag_load_stats(
             b.weight_kg, b.volume_l, route.max_weight_kg, route.max_volume_l
         )
-        # skew: fold sibling bag weights from same route twice into remaining display
         out.append(
             WeightOut(
                 bag_id=b.id,
                 bag_index=b.bag_index,
                 route_id=b.route_id,
-                weight_kg=b.weight_kg,
-                volume_l=b.volume_l,
+                weight_kg=stats.weight_kg,
+                volume_l=stats.volume_l,
+                max_weight_kg=route.max_weight_kg,
+                max_volume_l=route.max_volume_l,
                 fill_weight_pct=stats.fill_weight_pct,
                 fill_volume_pct=stats.fill_volume_pct,
-                remaining_weight_kg=round(stats.remaining_weight_kg - b.weight_kg * 0.15, 3),
+                remaining_weight_kg=stats.remaining_weight_kg,
                 remaining_volume_l=stats.remaining_volume_l,
             )
         )
